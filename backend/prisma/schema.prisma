@@ -1,0 +1,354 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  MEMBER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  REGISTER
+  PASSWORD_RESET
+  EMAIL_VERIFIED
+  ROLE_CHANGED
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_DELETED
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_ASSIGNED
+  TASK_DELETED
+  FILE_UPLOADED
+  FILE_DELETED
+  INVITATION_SENT
+  INVITATION_ACCEPTED
+  MEMBER_REMOVED
+  ORG_UPDATED
+  PROFILE_UPDATED
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  logoUrl     String?
+  website     String?
+  industry    String?
+  size        String?
+  plan        String   @default("free")
+  isActive    Boolean  @default(true)
+  settings    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       OrganizationUser[]
+  projects    Project[]
+  invitations Invitation[]
+  auditLogs   AuditLog[]
+  files       File[]
+  notifications Notification[]
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String
+  firstName       String
+  lastName        String
+  avatarUrl       String?
+  phone           String?
+  bio             String?   @db.Text
+  role            Role      @default(MEMBER)
+  isEmailVerified Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  emailVerifyToken String?
+  emailVerifyExpiry DateTime?
+  passwordResetToken String?
+  passwordResetExpiry DateTime?
+  twoFactorSecret String?
+  twoFactorEnabled Boolean @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organizations   OrganizationUser[]
+  assignedTasks   Task[]             @relation("TaskAssignee")
+  createdTasks    Task[]             @relation("TaskCreator")
+  comments        Comment[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  files           File[]
+  sentInvitations Invitation[]       @relation("InvitationSender")
+  notifications   Notification[]
+  activityLogs    ActivityLog[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model OrganizationUser {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role         @default(MEMBER)
+  joinedAt       DateTime     @default(now())
+  isActive       Boolean      @default(true)
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("organization_users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token String @unique @db.VarChar(512)
+  userId    String
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?  @db.Text
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token(length: 255)])
+  @@map("refresh_tokens")
+}
+
+model Project {
+  id             String        @id @default(cuid())
+  name           String
+  description    String?       @db.Text
+  status         ProjectStatus @default(ACTIVE)
+  organizationId String
+  ownerId        String?
+  color          String?
+  startDate      DateTime?
+  endDate        DateTime?
+  isArchived     Boolean       @default(false)
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+  files          File[]
+  auditLogs      AuditLog[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("projects")
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  title          String
+  description    String?      @db.Text
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  organizationId String
+  projectId      String
+  assigneeId     String?
+  creatorId      String
+  dueDate        DateTime?
+  completedAt    DateTime?
+  estimatedHours Float?
+  actualHours    Float?
+  tags           Json?
+  position       Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee       User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  creator        User         @relation("TaskCreator", fields: [creatorId], references: [id])
+  comments       Comment[]
+  files          File[]
+  auditLogs      AuditLog[]
+
+  @@index([projectId])
+  @@index([organizationId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("tasks")
+}
+
+model Comment {
+  id             String   @id @default(cuid())
+  content        String   @db.Text
+  taskId         String
+  userId         String
+  organizationId String
+  isEdited       Boolean  @default(false)
+  parentId       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent         Comment? @relation("CommentReplies", fields: [parentId], references: [id])
+  replies        Comment[] @relation("CommentReplies")
+
+  @@index([taskId])
+  @@index([userId])
+  @@map("comments")
+}
+
+model File {
+  id             String   @id @default(cuid())
+  name           String
+  originalName   String
+  url            String   @db.Text
+  publicId       String
+  mimeType       String
+  size           Int
+  organizationId String
+  uploadedById   String
+  projectId      String?
+  taskId         String?
+  folder         String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy     User         @relation(fields: [uploadedById], references: [id])
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  task           Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([uploadedById])
+  @@map("files")
+}
+
+model Invitation {
+  id             String           @id @default(cuid())
+  email          String
+  role           Role             @default(MEMBER)
+  organizationId String
+  invitedById    String
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  message        String?          @db.Text
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy      User             @relation("InvitationSender", fields: [invitedById], references: [id])
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([token])
+  @@map("invitations")
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  action         AuditAction
+  userId         String?
+  organizationId String?
+  projectId      String?
+  taskId         String?
+  details        Json?
+  ipAddress      String?
+  userAgent      String?     @db.Text
+  createdAt      DateTime    @default(now())
+
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  task           Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String?
+  title          String
+  message        String   @db.Text
+  type           String
+  isRead         Boolean  @default(false)
+  data           Json?
+  createdAt      DateTime @default(now())
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  action         String
+  entityType     String
+  entityId       String
+  entityName     String?
+  details        Json?
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
