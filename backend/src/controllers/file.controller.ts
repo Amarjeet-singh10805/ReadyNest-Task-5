@@ -2,20 +2,22 @@ import { Request, Response } from 'express';
 import path from 'path';
 import { prisma } from '../config/database';
 import { AppError } from '../utils/AppError';
-import { successResponse, paginatedResponse, getPaginationParams } from '../utils/response';
+import { successResponse, paginatedResponse, getPaginationParams, qs } from '../utils/response';
 import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary';
 import { createAuditLog, createActivityLog } from '../services/audit.service';
 
 // GET /files
 export const getFiles = async (req: Request, res: Response) => {
   const { page, limit, skip } = getPaginationParams(req.query);
-  const { projectId, taskId, search } = req.query;
+  const projectId = qs(req.query.projectId);
+  const taskId = qs(req.query.taskId);
+  const search = qs(req.query.search);
   const orgId = req.organizationId!;
 
   const where: any = { organizationId: orgId };
-  if (projectId) where.projectId = projectId as string;
-  if (taskId) where.taskId = taskId as string;
-  if (search) where.name = { contains: search as string };
+  if (projectId) where.projectId = projectId;
+  if (taskId) where.taskId = taskId;
+  if (search) where.name = { contains: search};
 
   const [files, total] = await prisma.$transaction([
     prisma.file.findMany({
